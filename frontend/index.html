@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breaker Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-canvas: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --primary: #2563eb;
+            --safe: #10b981;
+            --danger: #ef4444;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-canvas);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px;
+        }
+
+        .dashboard-container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 24px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        header p {
+            margin: 4px 0 0 0;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* KPI Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+            transition: all 0.3s ease;
+        }
+
+        .card-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-top: 8px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Status Card Context Variants */
+        .status-normal {
+            border-left: 6px solid var(--safe);
+        }
+
+        .status-critical {
+            border-left: 6px solid var(--danger);
+            background-color: #fef2f2;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+
+        /* Main Chart Canvas wrapper */
+        .chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 380px;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard-container">
+        <header>
+            <h1>Circuit Breaker Telemetry Monitor</h1>
+            <p>Real-time analytics engine over a sliding 5-minute operational window</p>
+        </header>
+
+        <div class="metrics-grid">
+            <div class="card status-normal" id="stateCard">
+                <div class="card-label">System State</div>
+                <div class="card-value" id="statusVal">INITIALIZING</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Live Current</div>
+                <div class="card-value" id="liveVal">0.00 <span
+                        style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span></div>
+            </div>
+            <div class="card">
+                <div class="card-label">Rolling 5m Peak</div>
+                <div class="card-value" id="peakVal" style="color: var(--text-main);">0.00 <span
+                        style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span></div>
+            </div>
+            <div class="card">
+                <div class="card-label">Rolling 5m P95</div>
+                <div class="card-value" id="p95Val">0.00 <span
+                        style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span></div>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-wrapper">
+                <canvas id="analyticsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('analyticsChart').getContext('2d');
+
+        // Initialize standard chart configurations
+        const analyticsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Current Draw (Amps)',
+                    data: [],
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.04)',
+                    borderWidth: 2.5,
+                    tension: 0.15,
+                    pointRadius: (ctx) => ctx.raw > 12.0 ? 6 : 0, // Hides normal dots, highlights surges
+                    pointBackgroundColor: '#ef4444',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+                    y: { suggestedMin: 0, suggestedMax: 16 }
+                }
+            }
+        });
+
+        async function fetchAndUpdateUI() {
+            try {
+                // 1. Fetch rolling calculation data summaries
+                const statsRes = await fetch('http://127.0.0.1:5000/api/stats');
+                const stats = await statsRes.json();
+
+                // Dynamic card UI rendering logic
+                document.getElementById('liveVal').innerHTML = `${stats.current_amps.toFixed(2)} <span style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span>`;
+                document.getElementById('peakVal').innerHTML = `${stats.rolling_5min_peak_spike.toFixed(2)} <span style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span>`;
+                document.getElementById('p95Val').innerHTML = `${stats.rolling_5min_p95.toFixed(2)} <span style="font-size:1rem; font-weight:400; color:var(--text-muted)">A</span>`;
+
+                // TO THIS INTUITIVE BLOCK:
+                const stateCard = document.getElementById('stateCard');
+                const statusVal = document.getElementById('statusVal');
+
+                // If the peak current inside the last 5 minutes broke the threshold
+                if (stats.rolling_5min_peak_spike > 12.0) {
+                    stateCard.className = "card status-critical";
+                    statusVal.textContent = "CRITICAL (RECENT SURGE)";
+                    statusVal.style.color = "var(--danger)";
+                } else {
+                    stateCard.className = "card status-normal";
+                    statusVal.textContent = "SYSTEM SAFE";
+                    statusVal.style.color = "var(--safe)";
+                }
+
+                // 2. Fetch data arrays for rendering onto the trendline canvas
+                const historyRes = await fetch('http://127.0.0.1:5000/api/history');
+                const history = await historyRes.json();
+
+                analyticsChart.data.labels = history.timestamps.map(ts => {
+                    return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+                });
+                analyticsChart.data.datasets[0].data = history.values;
+                analyticsChart.update('none'); // Update smoothly without ugly full canvas re-draw blinks
+
+            } catch (err) {
+                console.error("Dashboard synchronization connection failure:", err);
+            }
+        }
+
+        // Run synchronization task every 1 second
+        setInterval(fetchAndUpdateUI, 1000);
+        fetchAndUpdateUI();
+    </script>
+
+</body>
+
+</html>

@@ -5,7 +5,7 @@ An IoT-enabled, non-invasive electrical current monitoring system designed to tr
 This project bridges **Ohm's Law** and **electrical engineering principles** with **embedded computing** and **data science** to solve a common domestic infrastructure challenge: unexpected circuit overloads.
 
 ---
-
+ 
 ## 💡 The Physics & Engineering Principle
 
 Residential circuit breakers in the US typically trip at a continuous current threshold of **15A** or **20A** at a nominal voltage of **120V AC**. When multiple high-wattage appliances (e.g., microwaves, space heaters) run on the same parallel branch, the total current draw exceeds the breaker's rated capacity, causing a thermal or magnetic trip.
